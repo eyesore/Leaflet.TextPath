@@ -8,87 +8,74 @@
 
 var PolylineTextPath = {
     setText: function (text, options) {
-        // TODO more, but shorter methods
-        var defaults = {
-            repeat: false,
-            center: false,  // only apply if text is not repeated - overrides offset
-            fillColor: 'black',
-            offset: 0 // percentage of total path length, use for startOffset and space between repeats
-        };
-        options = L.Util.extend(defaults, options);
-
         /* If empty text, hide */
-        if (!text) {
-            if (this._textNode)
-                this._map._pathRoot.removeChild(this._textNode);
-            return this;
-        }
+        if (!text)
+            return this._textCleanup();
+
+        options = L.Util.extend(this._setTextDefaults(), options);
 
         var id = 'pathdef-' + L.Util.stamp(this),
             svg = this._map._pathRoot;
         this._path.setAttribute('id', id);
 
-        // TODO optimize
-        var tempPath = new L.Path(),  // just for _createElement method
-            pattern = tempPath._createElement.call(this, 'text');
-        pattern.appendChild(document.createTextNode(text));
-        svg.appendChild(pattern);
-
-        // create pattern to for spacing computations
-        var patternLength = pattern.getComputedTextLength(),
-            pathLength = this._path.getTotalLength(),
-            ratio = patternLength / pathLength * 100,
-            textRepeat;  // array to be populated with repitions
-
-        svg.removeChild(pattern);
-
-        if(pathLength === 0 || ratio > 90)  // maybe already divided by zero, whoops
-        {
-            if (this._textNode)
-                this._map._pathRoot.removeChild(this._textNode);
-            return;
-        }
-
-        var textNode = tempPath._createElement.call(this, 'text'),
-            textPath = tempPath._createElement.call(this, 'textPath');
+        var textNode = this._createElement('text'),
+            textPath = this._createElement('textPath');
 
         textPath.setAttributeNS("http://www.w3.org/1999/xlink", "xlink:href", '#'+id);
         textNode.setAttribute('fill', options.fillColor);
         textNode.setAttribute('dy', this._path.getAttribute('stroke-width') - 1);
         textPath.appendChild(document.createTextNode(text));
+        textNode.appendChild(textPath);
 
-        if(options.repeat)
-        {
+        // TODO get rid of add/remove
+        svg.appendChild(textNode);
+        var patternLength = textPath.getComputedTextLength(),
+            pathLength = this._path.getTotalLength(),
+            ratio = patternLength / pathLength * 100,
+            textRepeat;  // array to be populated with repitions
+        textNode.removeChild(textPath);
+        svg.removeChild(textNode);
+
+        // maybe already divided by zero, whoops
+        if(pathLength === 0 || patternLength === 0 || ratio > 90)
+            return this._textCleanup();
+
+        if(options.repeat) {
             var maxCopies = Math.floor(100 / (ratio + options.offset));
-            if(maxCopies <= 1)
-            {
+            if(options.simpleRepeat) {
+                // repeating string in a single textPath - todo simplify or remove
+                text = new Array(Math.floor(pathLength / patternLength)).join(text);
+                textPath.removeChild(textPath.firstChild);
+                textPath.appendChild(document.createTextNode(text));
+                options.repeat = false;
+                options.center = false;
+            }
+            else if(maxCopies <= 1) {
                 options.repeat = false;
                 options.center = true;
             }
-            else
-            {
+            else {
                 options.center = false;  // no centering if we can repeat
-                textRepeat = this.repeatPattern(textPath, maxCopies, options.offset, ratio);
+                textRepeat = this._repeatPattern(textPath, maxCopies, options.offset, ratio);
             }
         }
 
         if(options.center)
             options.offset = (100 - ratio) / 2;
 
-        if(textRepeat)
-        {
+        if(textRepeat) {
             var i;
             for(i = 0; i < textRepeat.length; i++)
                 textNode.appendChild(textRepeat[i]);
         }
-        else
-        {
+        else {
             textPath.setAttribute('startOffset', options.offset + '%');  // typesafety?
             textNode.appendChild(textPath);
         }
 
         svg.appendChild(textNode);
         this._textNode = textNode;
+        console.log(textNode);
         return this;
     },
 
@@ -100,17 +87,16 @@ var PolylineTextPath = {
      * @param {int} ratio Percentage of the total path occupied by pattern
      * @return {array} Copies of the original pattern, with offsets
      */
-    repeatPattern: function(pattern, count, offset, patternLength)
+    _repeatPattern: function(pattern, count, offset, patternLength)
     {
         var i, nextCopy, id,
-            tempPath = new L.Path(),
             nextOffset = offset,
             out = [];
 
         for(i = 0; i < count; i++)
         {
             id = 'pathdef-' + L.Util.stamp(this);
-            nextCopy = tempPath._createElement.call(this, 'textPath');
+            nextCopy = this._createElement('textPath');
             nextCopy = L.Util.extend(nextCopy, pattern);
             nextCopy.setAttribute('startOffset', nextOffset + '%');
             nextCopy.setAttributeNS("http://www.w3.org/1999/xlink", "xlink:href", '#'+id);
@@ -118,6 +104,23 @@ var PolylineTextPath = {
             nextOffset += Math.floor(offset + patternLength);
         }
         return out;
+    },
+
+    _textCleanup: function()
+    {
+        if(this._textNode)
+            this._map._pathRoot.removeChild(this._textNode);
+    },
+
+    _setTextDefaults: function()
+    {
+        return {
+            repeat: false,
+            simpleRepeat: false,
+            center: false,  // only apply if text is not repeated - overrides offset
+            fillColor: 'black',
+            offset: 0 // percentage of total path length, use for startOffset and space between repeats
+        };
     }
 };
 
